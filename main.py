@@ -1,67 +1,168 @@
 import discord
-from discord.ext import commands
-import random
 import json
 import os
+import random
+import asyncio
+from discord.ext import commands
+from datetime import datetime, timedelta
 
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True  # Required for leaderboard
+intents.members = True
+bot = commands.Bot(command_prefix='!', intents=intents)
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+DATA_FILE = "balances.json"
 
-# Load or initialize balances
-if os.path.exists("balances.json"):
-    with open("balances.json", "r") as f:
-        balances = json.load(f)
-else:
-    balances = {}
+if not os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "w") as f:
+        json.dump({}, f)
 
-def save_balances():
-    with open("balances.json", "w") as f:
-        json.dump(balances, f)
+def load_balances():
+    with open(DATA_FILE, "r") as f:
+        return json.load(f)
+
+def save_balances(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
+def ensure_user(data, user_id):
+    if str(user_id) not in data:
+        data[str(user_id)] = {"balance": 0, "last_work": "1970-01-01", "last_daily": "1970-01-01"}
 
 @bot.event
 async def on_ready():
-    print(f"{bot.user} is online!")
+    print(f"Logged in as {bot.user}")
 
-@bot.command()
+@bot.command(name="бал")
+async def balance(ctx, member: discord.Member = None):
+    user = member or ctx.author
+    data = load_balances()
+    ensure_user(data, user.id)
+    await ctx.send(f"{user.display_name}'s balance: {data[str(user.id)]['balance']} coins")
+
+@bot.command(name="раб")
 async def work(ctx):
+    data = load_balances()
     user_id = str(ctx.author.id)
-    balances[user_id] = balances.get(user_id, 0) + 100
-    save_balances()
-    await ctx.send(f"{ctx.author.mention}, you earned 💵 100! Current balance: {balances[user_id]}")
+    ensure_user(data, user_id)
 
-@bot.command()
-async def gamble(ctx, amount: int):
-    user_id = str(ctx.author.id)
-    if amount <= 0:
-        return await ctx.send("Amount must be positive.")
-    if balances.get(user_id, 0) < amount:
-        return await ctx.send("You don't have enough money!")
-    
-    result = random.choice(["win", "lose"])
-    if result == "win":
-        balances[user_id] += amount
-        await ctx.send(f"🎉 You **won**! Your new balance is {balances[user_id]}")
+    last_work = datetime.fromisoformat(data[user_id]["last_work"])
+    now = datetime.utcnow()
+    if now - last_work >= timedelta(minutes=30):
+        data[user_id]["balance"] += 100
+        data[user_id]["last_work"] = now.isoformat()
+        save_balances(data)
+        await ctx.send(f"{ctx.author.mention} пахал на шахте и заработал 100 денюжек")
     else:
-        balances[user_id] -= amount
-        await ctx.send(f"💀 You **lost**! Your new balance is {balances[user_id]}")
-    
-    save_balances()
+        remaining = timedelta(minutes=30) - (now - last_work)
+        await ctx.send(f"{ctx.author.mention}, свали нахуй и возвращайся через {remaining.seconds // 60} минут.")
 
-@bot.command(name="lb")
+@bot.command(name="награда")
+async def daily(ctx):
+    data = load_balances()
+    user_id = str(ctx.author.id)
+    ensure_user(data, user_id)
+
+    last_daily = datetime.fromisoformat(data[user_id]["last_daily"])
+    now = datetime.utcnow()
+    if now - last_daily >= timedelta(days=1):
+        data[user_id]["balance"] += 1000
+        data[user_id]["last_daily"] = now.isoformat()
+        save_balances(data)
+        await ctx.send(f"{ctx.author.mention} забрал награду в размере 1000!")
+    else:
+        next_claim = timedelta(days=1) - (now - last_daily)
+        hours = next_claim.seconds // 3600
+        minutes = (next_claim.seconds % 3600) // 60
+        await ctx.send(f"{ctx.author.mention}, приходи через {hours}ч {minutes}мин чтобы забрать ДЕНЮЖКИИ")
+
+@bot.command(name="ограбить")
+async def rob(ctx, target: discord.Member):
+    if target == ctx.author:
+        await ctx.send("You can't rob yourself, chill 😅")
+        return
+
+    data = load_balances()
+    user_id = str(ctx.author.id)
+    target_id = str(target.id)
+    ensure_user(data, user_id)
+    ensure_user(data, target_id)
+
+    if data[target_id]["balance"] < 100:
+        await ctx.send(f"{target.display_name} не имеет никаких денег вообще ")
+        return
+
+    success = random.choice([True, False])
+    if success:
+        steal_percent = random.randint(10, 25)
+        stolen_amount = data[target_id]["balance"] * steal_percent // 100
+        data[target_id]["balance"] -= stolen_amount
+        data[user_id]["balance"] += stolen_amount
+        save_balances(data)
+        await ctx.send(f"{ctx.author.mention} успешно ограбил {target.display_name} и украл {stolen_amount} денег")
+    else:
+        await ctx.send(f"{ctx.author.mention} попытался ограбить {target.display_name} но у него ничего нахуй не получилось!")
+
+@bot.command(name="донат")
+async def tip(ctx, target: discord.Member, amount: int):
+    if target == ctx.author:
+        await ctx.send("хуй тебе")
+        return
+
+    if amount <= 0:
+        await ctx.send("нормальную цифру поставь олух")
+        return
+
+    data = load_balances()
+    user_id = str(ctx.author.id)
+    target_id = str(target.id)
+    ensure_user(data, user_id)
+    ensure_user(data, target_id)
+
+    if data[user_id]["balance"] < amount:
+        await ctx.send("нету у тебя столько олух")
+        return
+
+    data[user_id]["balance"] -= amount
+    data[target_id]["balance"] += amount
+    save_balances(data)
+    await ctx.send(f"{ctx.author.mention} пожертвовал {amount} денег к {target.display_name}")
+
+@bot.command(name="лб")
 async def leaderboard(ctx):
-    if not balances:
-        return await ctx.send("No one has any money yet!")
+    data = load_balances()
+    sorted_users = sorted(data.items(), key=lambda x: x[1]["balance"], reverse=True)
+    top = sorted_users[:10]
 
-    top = sorted(balances.items(), key=lambda x: x[1], reverse=True)[:10]
-    embed = discord.Embed(title="🏆 Leaderboard", color=discord.Color.gold())
-    for idx, (user_id, balance) in enumerate(top, start=1):
-        user = await bot.fetch_user(int(user_id))
-        embed.add_field(name=f"{idx}. {user.name}", value=f"💰 {balance}", inline=False)
-    
-    await ctx.send(embed=embed)
+    msg = "**🏆 Leaderboard 🏆**\n"
+    for i, (uid, info) in enumerate(top, 1):
+        user = await bot.fetch_user(int(uid))
+        msg += f"{i}. {user.display_name} - {info['balance']} coins\n"
 
-# Run the bot
+    await ctx.send(msg)
+
+
+    @bot.command(name="выдать")
+async def give(ctx, target: discord.Member, amount: int):
+    # Replace this with YOUR actual Discord user ID
+    authorized_id = 123456789012345678  # 👈 Replace with your ID
+
+    if ctx.author.id != authorized_id:
+        await ctx.send("хуй тебе.")
+        return
+
+    if amount <= 0:
+        await ctx.send("че даун чтоли")
+        return
+
+    data = load_balances()
+    user_id = str(target.id)
+    ensure_user(data, user_id)
+
+    data[user_id]["balance"] += amount
+    save_balances(data)
+    await ctx.send(f"выдано {amount} денег на баланс {target.display_name}.")
+
+
+# Run your bot
 bot.run(os.getenv("TOKEN"))
