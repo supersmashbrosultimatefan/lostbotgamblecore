@@ -142,26 +142,20 @@ async def leaderboard(ctx):
     await ctx.send(msg)
 
 
-    @bot.command(name="выдать")
+@bot.command(name="выдать")
 async def give(ctx, target: discord.Member, amount: int):
-    # Replace this with YOUR actual Discord user ID
-    authorized_id = 123456789012345678  # 👈 Replace with your ID
-
-    if ctx.author.id != authorized_id:
-        await ctx.send("хуй тебе.")
+    if ctx.author.id != 669836907815108609:
+        await ctx.send("хуй хуй хуй тебе")
         return
 
-    if amount <= 0:
-        await ctx.send("че даун чтоли")
+    if target.bot:
+        await ctx.send("нет")
         return
 
-    data = load_balances()
-    user_id = str(target.id)
-    ensure_user(data, user_id)
+    balances[str(target.id)] = balances.get(str(target.id), 0) + amount
+    save_balances()
+    await ctx.send(f"выдал {amount} денег на баланс {target.mention}.")
 
-    data[user_id]["balance"] += amount
-    save_balances(data)
-    await ctx.send(f"выдано {amount} денег на баланс {target.display_name}.")
 
 
 # Run your bot
