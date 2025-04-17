@@ -156,24 +156,25 @@ async def give(ctx, target: discord.Member, amount: int):
     save_balances()
     await ctx.send(f"выдал {amount} денег на баланс {target.mention}.")
 
-@bot.command(name="сыграть")
+@bot.command()
 async def gamble(ctx, amount: int):
     user_id = str(ctx.author.id)
 
     # Check if user has enough balance
     if user_id not in balances or balances[user_id] < amount:
-        await ctx.send("размечтался, нету у тебя столько")
+        await ctx.send("You don't have enough currency to gamble that amount.")
         return
 
     # Perform 50/50 gamble
     if random.choice([True, False]):
-        balances[user_id] += amount
-        await ctx.send(f"ты выйграл! теперь твой баланс: {balances[user_id]}")
+        balances[user_id] += amount * 2  # Win: double the bet
+        await ctx.send(f"You won! 🎉 Your new balance is {balances[user_id]}")
     else:
-        balances[user_id] -= amount
-        await ctx.send(f"ты проиграл. теперь твой баланс {balances[user_id]}")
+        balances[user_id] -= amount  # Lose: lose the bet
+        await ctx.send(f"You lost! 💸 Your new balance is {balances[user_id]}")
 
     save_balances()
+
 
 
 
