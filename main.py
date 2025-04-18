@@ -166,19 +166,19 @@ async def lb(ctx):
     embed = discord.Embed(title="Таблица лидеров", description=desc)
     await ctx.send(embed=embed)
 
-@bot.command(name="комманды")
+@bot.command(name="команды")
 async def cmds(ctx):
     commands_list = (
         "!раб - Пропахать на шахтах и получить 100 баксов\n"
         "!награда - Забирать награду в размере 1000 денег просто за то что ты жив\n"
-        "!баланс [@user] - Проверить свой или чужой баланс\n"
+        "!бал [@user] - Проверить свой или чужой баланс\n"
         "!сыграть <amount> - СЫГРАТЬ В КАЗИНО ПРОДАЙ КВАРТИРУ И СЫНА\n"
         "!ограбить @user - попробовать спиздить денег на халяву\n"
         "!пожертв @user <amount> - будь добрым человеком и отдай денег кому то\n"
         "!лб - Посмотреть таблицу лидеров\n"
         "!выдать @user <количество денег> - (только для лоста uwu) дать денег"
     )
-    await ctx.send(f"Here are the available commands:\n\n{commands_list}")
+    await ctx.send(f"Вот все команды::\n\n{commands_list}")
 
 @bot.command(name="выдать")
 async def give(ctx, target: discord.Member, amount: int):
