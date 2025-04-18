@@ -149,7 +149,7 @@ async def tip(ctx, target: discord.Member, amount: int):
 
 @bot.command()
 async def give(ctx, target: discord.Member, amount: int):
-    if str(ctx.author.id) != "669836907815108609":
+    if str(ctx.author.id) != "YOUR_USER_ID_HERE":
         await ctx.send("You don't have permission to use this command.")
         return
     balances[str(target.id)] = balances.get(str(target.id), 0) + amount
