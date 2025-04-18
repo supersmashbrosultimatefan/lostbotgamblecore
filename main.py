@@ -144,17 +144,16 @@ async def leaderboard(ctx):
 
 @bot.command(name="выдать")
 async def give(ctx, target: discord.Member, amount: int):
-    if ctx.author.id != 669836907815108609:
-        await ctx.send("хуй хуй хуй тебе")
+    if ctx.author.id != YOUR_USER_ID_HERE:
+        await ctx.send("You are not authorized to use this command.")
         return
 
-    if target.bot:
-        await ctx.send("нет")
-        return
+    global balances  # <-- Add this line to access the global variable
 
     balances[str(target.id)] = balances.get(str(target.id), 0) + amount
     save_balances()
-    await ctx.send(f"выдал {amount} денег на баланс {target.mention}.")
+    await ctx.send(f"Gave {amount} to {target.mention}. Their new balance is {balances[str(target.id)]}")
+
 
 @bot.command()
 async def gamble(ctx, amount: int):
