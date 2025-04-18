@@ -1,182 +1,164 @@
 import discord
+from discord.ext import commands, tasks
+import asyncio
 import json
 import os
-import random
-import asyncio
-from discord.ext import commands
 from datetime import datetime, timedelta
+from flask import Flask
+from threading import Thread
 
+# --- Flask setup for uptime pinging ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# --- Discord bot setup ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-DATA_FILE = "balances.json"
+# Load balances from file or initialize
+try:
+    with open("balances.json", "r") as f:
+        balances = json.load(f)
+except:
+    balances = {}
 
-if not os.path.exists(DATA_FILE):
-    with open(DATA_FILE, "w") as f:
-        json.dump({}, f)
+def save_balances():
+    with open("balances.json", "w") as f:
+        json.dump(balances, f)
 
-def load_balances():
-    with open(DATA_FILE, "r") as f:
-        return json.load(f)
-
-def save_balances(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)
-
-def ensure_user(data, user_id):
-    if str(user_id) not in data:
-        data[str(user_id)] = {"balance": 0, "last_work": "1970-01-01", "last_daily": "1970-01-01"}
+cooldowns = {}  # Tracks work and daily cooldowns
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
 
-@bot.command(name="бал")
-async def balance(ctx, member: discord.Member = None):
-    user = member or ctx.author
-    data = load_balances()
-    ensure_user(data, user.id)
-    await ctx.send(f"{user.display_name}'s balance: {data[str(user.id)]['balance']} coins")
-
-@bot.command(name="раб")
+@bot.command()
 async def work(ctx):
-    data = load_balances()
     user_id = str(ctx.author.id)
-    ensure_user(data, user_id)
-
-    last_work = datetime.fromisoformat(data[user_id]["last_work"])
     now = datetime.utcnow()
-    if now - last_work >= timedelta(minutes=30):
-        data[user_id]["balance"] += 100
-        data[user_id]["last_work"] = now.isoformat()
-        save_balances(data)
-        await ctx.send(f"{ctx.author.mention} пахал на шахте и заработал 100 денюжек")
-    else:
-        remaining = timedelta(minutes=30) - (now - last_work)
-        await ctx.send(f"{ctx.author.mention}, свали нахуй и возвращайся через {remaining.seconds // 60} минут.")
+    last_used = cooldowns.get(user_id, {}).get('work')
 
-@bot.command(name="награда")
-async def daily(ctx):
-    data = load_balances()
-    user_id = str(ctx.author.id)
-    ensure_user(data, user_id)
-
-    last_daily = datetime.fromisoformat(data[user_id]["last_daily"])
-    now = datetime.utcnow()
-    if now - last_daily >= timedelta(days=1):
-        data[user_id]["balance"] += 1000
-        data[user_id]["last_daily"] = now.isoformat()
-        save_balances(data)
-        await ctx.send(f"{ctx.author.mention} забрал награду в размере 1000!")
-    else:
-        next_claim = timedelta(days=1) - (now - last_daily)
-        hours = next_claim.seconds // 3600
-        minutes = (next_claim.seconds % 3600) // 60
-        await ctx.send(f"{ctx.author.mention}, приходи через {hours}ч {minutes}мин чтобы забрать ДЕНЮЖКИИ")
-
-@bot.command(name="ограбить")
-async def rob(ctx, target: discord.Member):
-    if target == ctx.author:
-        await ctx.send("You can't rob yourself, chill 😅")
+    if last_used and now - last_used < timedelta(minutes=30):
+        await ctx.send("You must wait 30 minutes before using !work again.")
         return
 
-    data = load_balances()
-    user_id = str(ctx.author.id)
-    target_id = str(target.id)
-    ensure_user(data, user_id)
-    ensure_user(data, target_id)
-
-    if data[target_id]["balance"] < 100:
-        await ctx.send(f"{target.display_name} не имеет никаких денег вообще ")
-        return
-
-    success = random.choice([True, False])
-    if success:
-        steal_percent = random.randint(10, 25)
-        stolen_amount = data[target_id]["balance"] * steal_percent // 100
-        data[target_id]["balance"] -= stolen_amount
-        data[user_id]["balance"] += stolen_amount
-        save_balances(data)
-        await ctx.send(f"{ctx.author.mention} успешно ограбил {target.display_name} и украл {stolen_amount} денег")
-    else:
-        await ctx.send(f"{ctx.author.mention} попытался ограбить {target.display_name} но у него ничего нахуй не получилось!")
-
-@bot.command(name="донат")
-async def tip(ctx, target: discord.Member, amount: int):
-    if target == ctx.author:
-        await ctx.send("хуй тебе")
-        return
-
-    if amount <= 0:
-        await ctx.send("нормальную цифру поставь олух")
-        return
-
-    data = load_balances()
-    user_id = str(ctx.author.id)
-    target_id = str(target.id)
-    ensure_user(data, user_id)
-    ensure_user(data, target_id)
-
-    if data[user_id]["balance"] < amount:
-        await ctx.send("нету у тебя столько олух")
-        return
-
-    data[user_id]["balance"] -= amount
-    data[target_id]["balance"] += amount
-    save_balances(data)
-    await ctx.send(f"{ctx.author.mention} пожертвовал {amount} денег к {target.display_name}")
-
-@bot.command(name="лб")
-async def leaderboard(ctx):
-    data = load_balances()
-    sorted_users = sorted(data.items(), key=lambda x: x[1]["balance"], reverse=True)
-    top = sorted_users[:10]
-
-    msg = "**🏆 Leaderboard 🏆**\n"
-    for i, (uid, info) in enumerate(top, 1):
-        user = await bot.fetch_user(int(uid))
-        msg += f"{i}. {user.display_name} - {info['balance']} coins\n"
-
-    await ctx.send(msg)
-
-
-@bot.command(name="выдать")
-async def give(ctx, target: discord.Member, amount: int):
-    if ctx.author.id != YOUR_USER_ID_HERE:
-        await ctx.send("You are not authorized to use this command.")
-        return
-
-    global balances  # <-- Add this line to access the global variable
-
-    balances[str(target.id)] = balances.get(str(target.id), 0) + amount
+    balances[user_id] = balances.get(user_id, 0) + 100
+    cooldowns.setdefault(user_id, {})['work'] = now
     save_balances()
-    await ctx.send(f"Gave {amount} to {target.mention}. Their new balance is {balances[str(target.id)]}")
+    await ctx.send(f"You worked and earned 100 coins! You now have {balances[user_id]}.")
 
+@bot.command()
+async def daily(ctx):
+    user_id = str(ctx.author.id)
+    now = datetime.utcnow()
+    last_used = cooldowns.get(user_id, {}).get('daily')
+
+    if last_used and now - last_used < timedelta(days=1):
+        await ctx.send("You already claimed your daily reward today!")
+        return
+
+    balances[user_id] = balances.get(user_id, 0) + 1000
+    cooldowns.setdefault(user_id, {})['daily'] = now
+    save_balances()
+    await ctx.send(f"Daily claimed! You received 1000 coins. You now have {balances[user_id]}.")
+
+@bot.command()
+async def balance(ctx, target: discord.Member = None):
+    if target is None:
+        target = ctx.author
+    user_id = str(target.id)
+    bal = balances.get(user_id, 0)
+    await ctx.send(f"{target.name} has {bal} coins.")
 
 @bot.command()
 async def gamble(ctx, amount: int):
     user_id = str(ctx.author.id)
+    balance_amt = balances.get(user_id, 0)
 
-    # Check if user has enough balance
-    if user_id not in balances or balances[user_id] < amount:
-        await ctx.send("You don't have enough currency to gamble that amount.")
+    if amount <= 0:
+        await ctx.send("Please enter a valid amount.")
+        return
+    if balance_amt < amount:
+        await ctx.send("You don't have enough coins to gamble that amount.")
         return
 
-    # Perform 50/50 gamble
-    if random.choice([True, False]):
-        balances[user_id] += amount * 2  # Win: double the bet
-        await ctx.send(f"You won! 🎉 Your new balance is {balances[user_id]}")
+    if os.urandom(1)[0] < 128:  # 50% chance
+        winnings = amount * 2
+        balances[user_id] = balance_amt + amount  # Net gain
+        await ctx.send(f"You won! You now have {balances[user_id]} coins.")
     else:
-        balances[user_id] -= amount  # Lose: lose the bet
-        await ctx.send(f"You lost! 💸 Your new balance is {balances[user_id]}")
+        balances[user_id] = balance_amt - amount
+        await ctx.send(f"You lost! You now have {balances[user_id]} coins.")
 
     save_balances()
 
+@bot.command()
+async def lb(ctx):
+    sorted_bal = sorted(balances.items(), key=lambda x: x[1], reverse=True)[:10]
+    leaderboard = []
+    for i, (uid, bal) in enumerate(sorted_bal, 1):
+        member = ctx.guild.get_member(int(uid))
+        name = member.name if member else f"User {uid}"
+        leaderboard.append(f"{i}. {name}: {bal} coins")
+    await ctx.send("\n".join(leaderboard))
 
+@bot.command()
+async def rob(ctx, target: discord.Member):
+    user_id = str(ctx.author.id)
+    target_id = str(target.id)
 
+    if target_id not in balances or balances[target_id] < 10:
+        await ctx.send("That user doesn't have enough money to rob!")
+        return
 
+    if os.urandom(1)[0] < 128:
+        steal_amount = int(balances[target_id] * (0.1 + (os.urandom(1)[0] % 16) / 100))
+        balances[user_id] = balances.get(user_id, 0) + steal_amount
+        balances[target_id] -= steal_amount
+        await ctx.send(f"You successfully robbed {steal_amount} coins from {target.name}!")
+    else:
+        await ctx.send("Your robbery failed!")
 
-# Run your bot
+    save_balances()
+
+@bot.command()
+async def tip(ctx, target: discord.Member, amount: int):
+    sender_id = str(ctx.author.id)
+    target_id = str(target.id)
+
+    if balances.get(sender_id, 0) < amount or amount <= 0:
+        await ctx.send("You don't have enough coins or invalid amount.")
+        return
+
+    balances[sender_id] -= amount
+    balances[target_id] = balances.get(target_id, 0) + amount
+    save_balances()
+    await ctx.send(f"You tipped {target.name} {amount} coins!")
+
+@bot.command()
+async def give(ctx, target: discord.Member, amount: int):
+    if str(ctx.author.id) != "669836907815108609":
+        await ctx.send("You are not authorized to use this command.")
+        return
+
+    target_id = str(target.id)
+    balances[target_id] = balances.get(target_id, 0) + amount
+    save_balances()
+    await ctx.send(f"Gave {amount} coins to {target.name}!")
+
+# --- Start everything ---
+keep_alive()
 bot.run(os.getenv("TOKEN"))
